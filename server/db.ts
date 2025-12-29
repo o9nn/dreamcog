@@ -1,9 +1,21 @@
-import { eq, and, like, desc } from "drizzle-orm";
+import { eq, and, or, like, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { 
   InsertUser, users, 
   apiKeys, InsertApiKey,
   characters, InsertCharacter,
+  characterEmotionalStates, InsertCharacterEmotionalState,
+  characterMotivations, InsertCharacterMotivation,
+  characterMemories, InsertCharacterMemory,
+  relationships, InsertRelationship,
+  relationshipEvents, InsertRelationshipEvent,
+  groups, InsertGroup,
+  groupMemberships, InsertGroupMembership,
+  worlds, InsertWorld,
+  locations, InsertLocation,
+  loreEntries, InsertLoreEntry, LoreCategory,
+  worldEvents, InsertWorldEvent,
+  scheduledEvents, InsertScheduledEvent, ScheduledEventStatus,
   scenarios, InsertScenario,
   scenarioCharacters, InsertScenarioCharacter,
   scenarioInteractions, InsertScenarioInteraction,
@@ -469,4 +481,510 @@ export async function deleteGeneratedImage(id: number, userId: number) {
   if (!db) return;
   
   await db.delete(generatedImages).where(and(eq(generatedImages.id, id), eq(generatedImages.userId, userId)));
+}
+
+// ============ CHARACTER EMOTIONAL STATE HELPERS ============
+
+export async function getCharacterEmotionalState(characterId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db.select().from(characterEmotionalStates)
+    .where(eq(characterEmotionalStates.characterId, characterId))
+    .limit(1);
+  return result[0];
+}
+
+export async function upsertCharacterEmotionalState(data: InsertCharacterEmotionalState) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Check if exists
+  const existing = await getCharacterEmotionalState(data.characterId);
+  
+  if (existing) {
+    await db.update(characterEmotionalStates)
+      .set({ ...data, lastUpdated: new Date() })
+      .where(eq(characterEmotionalStates.characterId, data.characterId));
+    return existing.id;
+  } else {
+    const result = await db.insert(characterEmotionalStates).values(data);
+    return result[0].insertId;
+  }
+}
+
+// ============ CHARACTER MOTIVATION HELPERS ============
+
+export async function createCharacterMotivation(data: InsertCharacterMotivation) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(characterMotivations).values(data);
+  return result[0].insertId;
+}
+
+export async function getCharacterMotivations(characterId: number, activeOnly = false) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  if (activeOnly) {
+    return db.select().from(characterMotivations)
+      .where(and(eq(characterMotivations.characterId, characterId), eq(characterMotivations.isActive, true)))
+      .orderBy(desc(characterMotivations.priority));
+  }
+  
+  return db.select().from(characterMotivations)
+    .where(eq(characterMotivations.characterId, characterId))
+    .orderBy(desc(characterMotivations.priority));
+}
+
+export async function updateCharacterMotivation(id: number, data: Partial<InsertCharacterMotivation>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(characterMotivations).set(data).where(eq(characterMotivations.id, id));
+}
+
+export async function deleteCharacterMotivation(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.delete(characterMotivations).where(eq(characterMotivations.id, id));
+}
+
+// ============ RELATIONSHIP HELPERS ============
+
+export async function createRelationship(data: InsertRelationship) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(relationships).values(data);
+  return result[0].insertId;
+}
+
+export async function getCharacterRelationships(characterId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // Get relationships where character is either party
+  const results = await db.select().from(relationships)
+    .where(
+      or(
+        eq(relationships.characterId1, characterId),
+        eq(relationships.characterId2, characterId)
+      )
+    );
+  
+  return results;
+}
+
+export async function getRelationshipBetween(characterId1: number, characterId2: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db.select().from(relationships)
+    .where(
+      and(
+        eq(relationships.characterId1, characterId1),
+        eq(relationships.characterId2, characterId2)
+      )
+    )
+    .limit(1);
+  
+  if (result[0]) return result[0];
+  
+  // Check reverse direction
+  const result2 = await db.select().from(relationships)
+    .where(
+      and(
+        eq(relationships.characterId1, characterId2),
+        eq(relationships.characterId2, characterId1)
+      )
+    )
+    .limit(1);
+  
+  return result2[0];
+}
+
+export async function updateRelationship(id: number, data: Partial<InsertRelationship>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(relationships).set(data).where(eq(relationships.id, id));
+}
+
+export async function deleteRelationship(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.delete(relationshipEvents).where(eq(relationshipEvents.relationshipId, id));
+  await db.delete(relationships).where(eq(relationships.id, id));
+}
+
+// ============ RELATIONSHIP EVENT HELPERS ============
+
+export async function addRelationshipEvent(data: InsertRelationshipEvent) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(relationshipEvents).values(data);
+  return result[0].insertId;
+}
+
+export async function getRelationshipEvents(relationshipId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(relationshipEvents)
+    .where(eq(relationshipEvents.relationshipId, relationshipId))
+    .orderBy(desc(relationshipEvents.eventDate));
+}
+
+// ============ GROUP HELPERS ============
+
+export async function createGroup(data: InsertGroup) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(groups).values(data);
+  return result[0].insertId;
+}
+
+export async function getGroupsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(groups).where(eq(groups.userId, userId)).orderBy(desc(groups.updatedAt));
+}
+
+export async function getGroupById(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db.select().from(groups)
+    .where(and(eq(groups.id, id), eq(groups.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function updateGroup(id: number, userId: number, data: Partial<InsertGroup>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(groups).set(data).where(and(eq(groups.id, id), eq(groups.userId, userId)));
+}
+
+export async function deleteGroup(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.delete(groupMemberships).where(eq(groupMemberships.groupId, id));
+  await db.delete(groups).where(and(eq(groups.id, id), eq(groups.userId, userId)));
+}
+
+// ============ GROUP MEMBERSHIP HELPERS ============
+
+export async function addGroupMembership(data: InsertGroupMembership) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(groupMemberships).values(data);
+  return result[0].insertId;
+}
+
+export async function getGroupMembers(groupId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(groupMemberships)
+    .where(eq(groupMemberships.groupId, groupId))
+    .orderBy(desc(groupMemberships.influence));
+}
+
+export async function getCharacterGroups(characterId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(groupMemberships)
+    .where(eq(groupMemberships.characterId, characterId));
+}
+
+export async function updateGroupMembership(id: number, data: Partial<InsertGroupMembership>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(groupMemberships).set(data).where(eq(groupMemberships.id, id));
+}
+
+export async function deleteGroupMembership(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.delete(groupMemberships).where(eq(groupMemberships.id, id));
+}
+
+// ============ WORLD HELPERS ============
+
+export async function createWorld(data: InsertWorld) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(worlds).values(data);
+  return result[0].insertId;
+}
+
+export async function getWorldsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(worlds).where(eq(worlds.userId, userId)).orderBy(desc(worlds.updatedAt));
+}
+
+export async function getWorldById(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db.select().from(worlds)
+    .where(and(eq(worlds.id, id), eq(worlds.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function updateWorld(id: number, userId: number, data: Partial<InsertWorld>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(worlds).set(data).where(and(eq(worlds.id, id), eq(worlds.userId, userId)));
+}
+
+export async function deleteWorld(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  // Delete related data
+  await db.delete(scheduledEvents).where(eq(scheduledEvents.worldId, id));
+  await db.delete(worldEvents).where(eq(worldEvents.worldId, id));
+  await db.delete(loreEntries).where(eq(loreEntries.worldId, id));
+  
+  // Delete all locations in a single query
+  await db.delete(locations).where(eq(locations.worldId, id));
+  
+  await db.delete(worlds).where(and(eq(worlds.id, id), eq(worlds.userId, userId)));
+}
+
+// ============ LOCATION HELPERS ============
+
+export async function createLocation(data: InsertLocation) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(locations).values(data);
+  return result[0].insertId;
+}
+
+export async function getLocationsByWorldId(worldId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(locations)
+    .where(eq(locations.worldId, worldId))
+    .orderBy(locations.name);
+}
+
+export async function getLocationById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db.select().from(locations).where(eq(locations.id, id)).limit(1);
+  return result[0];
+}
+
+export async function updateLocation(id: number, data: Partial<InsertLocation>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(locations).set(data).where(eq(locations.id, id));
+}
+
+export async function deleteLocation(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.delete(locations).where(eq(locations.id, id));
+}
+
+// ============ LORE ENTRY HELPERS ============
+
+export async function createLoreEntry(data: InsertLoreEntry) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(loreEntries).values(data);
+  return result[0].insertId;
+}
+
+export async function getLoreEntriesByWorldId(worldId: number, category?: LoreCategory) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  if (category) {
+    return db.select().from(loreEntries)
+      .where(and(eq(loreEntries.worldId, worldId), eq(loreEntries.category, category)))
+      .orderBy(desc(loreEntries.updatedAt));
+  }
+  
+  return db.select().from(loreEntries)
+    .where(eq(loreEntries.worldId, worldId))
+    .orderBy(desc(loreEntries.updatedAt));
+}
+
+export async function getLoreEntryById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db.select().from(loreEntries).where(eq(loreEntries.id, id)).limit(1);
+  return result[0];
+}
+
+export async function updateLoreEntry(id: number, data: Partial<InsertLoreEntry>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(loreEntries).set(data).where(eq(loreEntries.id, id));
+}
+
+export async function deleteLoreEntry(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.delete(loreEntries).where(eq(loreEntries.id, id));
+}
+
+// ============ WORLD EVENT HELPERS ============
+
+export async function createWorldEvent(data: InsertWorldEvent) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(worldEvents).values(data);
+  return result[0].insertId;
+}
+
+export async function getWorldEventsByWorldId(worldId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(worldEvents)
+    .where(eq(worldEvents.worldId, worldId))
+    .orderBy(desc(worldEvents.importance), desc(worldEvents.updatedAt));
+}
+
+export async function getWorldEventById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db.select().from(worldEvents).where(eq(worldEvents.id, id)).limit(1);
+  return result[0];
+}
+
+export async function updateWorldEvent(id: number, data: Partial<InsertWorldEvent>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(worldEvents).set(data).where(eq(worldEvents.id, id));
+}
+
+export async function deleteWorldEvent(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.delete(worldEvents).where(eq(worldEvents.id, id));
+}
+
+// ============ CHARACTER MEMORY HELPERS ============
+
+export async function addCharacterMemory(data: InsertCharacterMemory) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(characterMemories).values(data);
+  return result[0].insertId;
+}
+
+export async function getCharacterMemories(characterId: number, limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(characterMemories)
+    .where(and(eq(characterMemories.characterId, characterId), eq(characterMemories.isRepressed, false)))
+    .orderBy(desc(characterMemories.importance), desc(characterMemories.memoryDate))
+    .limit(limit);
+}
+
+export async function updateCharacterMemory(id: number, data: Partial<InsertCharacterMemory>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(characterMemories).set(data).where(eq(characterMemories.id, id));
+}
+
+export async function deleteCharacterMemory(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.delete(characterMemories).where(eq(characterMemories.id, id));
+}
+
+// ============ SCHEDULED EVENT HELPERS ============
+
+export async function createScheduledEvent(data: InsertScheduledEvent) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(scheduledEvents).values(data);
+  return result[0].insertId;
+}
+
+export async function getScheduledEventsByWorldId(worldId: number, statusFilter?: ScheduledEventStatus) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  if (statusFilter) {
+    return db.select().from(scheduledEvents)
+      .where(and(eq(scheduledEvents.worldId, worldId), eq(scheduledEvents.status, statusFilter)))
+      .orderBy(scheduledEvents.scheduledFor);
+  }
+  
+  return db.select().from(scheduledEvents)
+    .where(eq(scheduledEvents.worldId, worldId))
+    .orderBy(scheduledEvents.scheduledFor);
+}
+
+export async function getPendingScheduledEvents(worldId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const now = new Date();
+  return db.select().from(scheduledEvents)
+    .where(
+      and(
+        eq(scheduledEvents.worldId, worldId),
+        eq(scheduledEvents.status, "pending")
+      )
+    )
+    .orderBy(scheduledEvents.priority, scheduledEvents.scheduledFor);
+}
+
+export async function updateScheduledEvent(id: number, data: Partial<InsertScheduledEvent>) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(scheduledEvents).set(data).where(eq(scheduledEvents.id, id));
+}
+
+export async function deleteScheduledEvent(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.delete(scheduledEvents).where(eq(scheduledEvents.id, id));
 }

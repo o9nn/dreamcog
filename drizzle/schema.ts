@@ -288,6 +288,7 @@ export const loreEntries = mysqlTable("lore_entries", {
 
 export type LoreEntry = typeof loreEntries.$inferSelect;
 export type InsertLoreEntry = typeof loreEntries.$inferInsert;
+export type LoreCategory = "history" | "legend" | "culture" | "religion" | "politics" | "science" | "magic" | "species" | "language" | "artifact" | "other";
 
 /**
  * World Events - Timeline of events in the world
@@ -362,6 +363,7 @@ export const scheduledEvents = mysqlTable("scheduled_events", {
 
 export type ScheduledEvent = typeof scheduledEvents.$inferSelect;
 export type InsertScheduledEvent = typeof scheduledEvents.$inferInsert;
+export type ScheduledEventStatus = "pending" | "active" | "completed" | "cancelled";
 
 /**
  * Scenarios - Role-play scenarios with settings and characters

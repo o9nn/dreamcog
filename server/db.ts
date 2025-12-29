@@ -1,4 +1,4 @@
-import { eq, and, like, desc } from "drizzle-orm";
+import { eq, and, or, like, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { 
   InsertUser, users, 
@@ -13,9 +13,9 @@ import {
   groupMemberships, InsertGroupMembership,
   worlds, InsertWorld,
   locations, InsertLocation,
-  loreEntries, InsertLoreEntry,
+  loreEntries, InsertLoreEntry, LoreCategory,
   worldEvents, InsertWorldEvent,
-  scheduledEvents, InsertScheduledEvent,
+  scheduledEvents, InsertScheduledEvent, ScheduledEventStatus,
   scenarios, InsertScenario,
   scenarioCharacters, InsertScenarioCharacter,
   scenarioInteractions, InsertScenarioInteraction,
@@ -569,15 +569,13 @@ export async function getCharacterRelationships(characterId: number) {
   // Get relationships where character is either party
   const results = await db.select().from(relationships)
     .where(
-      and(
-        eq(relationships.characterId1, characterId)
+      or(
+        eq(relationships.characterId1, characterId),
+        eq(relationships.characterId2, characterId)
       )
     );
   
-  const results2 = await db.select().from(relationships)
-    .where(eq(relationships.characterId2, characterId));
-  
-  return [...results, ...results2];
+  return results;
 }
 
 export async function getRelationshipBetween(characterId1: number, characterId2: number) {
@@ -768,11 +766,8 @@ export async function deleteWorld(id: number, userId: number) {
   await db.delete(worldEvents).where(eq(worldEvents.worldId, id));
   await db.delete(loreEntries).where(eq(loreEntries.worldId, id));
   
-  // Delete locations
-  const worldLocations = await db.select().from(locations).where(eq(locations.worldId, id));
-  for (const loc of worldLocations) {
-    await db.delete(locations).where(eq(locations.id, loc.id));
-  }
+  // Delete all locations in a single query
+  await db.delete(locations).where(eq(locations.worldId, id));
   
   await db.delete(worlds).where(and(eq(worlds.id, id), eq(worlds.userId, userId)));
 }
@@ -828,13 +823,13 @@ export async function createLoreEntry(data: InsertLoreEntry) {
   return result[0].insertId;
 }
 
-export async function getLoreEntriesByWorldId(worldId: number, category?: string) {
+export async function getLoreEntriesByWorldId(worldId: number, category?: LoreCategory) {
   const db = await getDb();
   if (!db) return [];
   
   if (category) {
     return db.select().from(loreEntries)
-      .where(and(eq(loreEntries.worldId, worldId), eq(loreEntries.category, category as any)))
+      .where(and(eq(loreEntries.worldId, worldId), eq(loreEntries.category, category)))
       .orderBy(desc(loreEntries.updatedAt));
   }
   
@@ -950,13 +945,13 @@ export async function createScheduledEvent(data: InsertScheduledEvent) {
   return result[0].insertId;
 }
 
-export async function getScheduledEventsByWorldId(worldId: number, statusFilter?: string) {
+export async function getScheduledEventsByWorldId(worldId: number, statusFilter?: ScheduledEventStatus) {
   const db = await getDb();
   if (!db) return [];
   
   if (statusFilter) {
     return db.select().from(scheduledEvents)
-      .where(and(eq(scheduledEvents.worldId, worldId), eq(scheduledEvents.status, statusFilter as any)))
+      .where(and(eq(scheduledEvents.worldId, worldId), eq(scheduledEvents.status, statusFilter)))
       .orderBy(scheduledEvents.scheduledFor);
   }
   
